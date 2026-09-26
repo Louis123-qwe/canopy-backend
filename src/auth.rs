@@ -267,6 +267,51 @@ pub async fn my_escrows(
     }
 }
 
+/// GET /users/lookup?email=someone@example.com
+/// Requires a valid Bearer token (must be logged in to look
+/// someone up). Returns only the minimum needed to confirm the
+/// freelancer exists and show their name for confirmation —
+/// never the password hash or any other account details.
+#[derive(Debug, Deserialize)]
+pub struct LookupQuery {
+    pub email: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UserLookupResult {
+    id: String,
+    first_name: String,
+    last_name: String,
+}
+
+pub async fn lookup_user(
+    State(db): State<Db>,
+    _auth_user: AuthUser,
+    axum::extract::Query(query): axum::extract::Query<LookupQuery>,
+) -> (StatusCode, Json<Value>) {
+    let email = query.email.trim().to_lowercase();
+
+    if let Err(msg) = validate_email(&email) {
+        return error_response(StatusCode::BAD_REQUEST, msg);
+    }
+
+    match crate::db::find_user_by_email(&db, &email).await {
+        Ok(Some(row)) => {
+            let result = UserLookupResult {
+                id: row.id.to_string(),
+                first_name: row.first_name,
+                last_name: row.last_name,
+            };
+            (StatusCode::OK, Json(json!({ "status": "ok", "user": result })))
+        }
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "No Canopy account found with that email"),
+        Err(e) => {
+            eprintln!("DB error looking up user: {e}");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong. Please try again.")
+        }
+    }
+}
+
 /// POST /auth/login
 pub async fn login(
     State(db): State<Db>,
