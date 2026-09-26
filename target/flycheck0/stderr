@@ -1,0 +1,12 @@
+warning: failed to save last-use data
+This may prevent cargo from accurately tracking what is being used in its global cache. This information is used for automatically removing unused data in the cache.
+
+database is locked
+
+Caused by:
+  Error code 5: database is locked
+error: failed to remove file `/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/build/quote-360ff8da84739db9/build-script-build`
+
+Caused by:
+  No such file or directory (os error 2)
+warning: build failed, waiting for other jobs to finish...

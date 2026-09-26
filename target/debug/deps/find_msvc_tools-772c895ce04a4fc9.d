@@ -1,0 +1,9 @@
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/find_msvc_tools-772c895ce04a4fc9.d: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/find_tools.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/tool.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/libfind_msvc_tools-772c895ce04a4fc9.rlib: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/find_tools.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/tool.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/libfind_msvc_tools-772c895ce04a4fc9.rmeta: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/find_tools.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/tool.rs
+
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/lib.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/find_tools.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.13/src/tool.rs:

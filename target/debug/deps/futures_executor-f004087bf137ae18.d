@@ -1,0 +1,9 @@
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/futures_executor-f004087bf137ae18.d: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/libfutures_executor-f004087bf137ae18.rlib: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/libfutures_executor-f004087bf137ae18.rmeta: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs
+
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs:

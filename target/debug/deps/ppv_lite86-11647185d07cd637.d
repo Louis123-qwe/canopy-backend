@@ -1,0 +1,8 @@
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/ppv_lite86-11647185d07cd637.d: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/soft.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/types.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/generic.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/libppv_lite86-11647185d07cd637.rmeta: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/soft.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/types.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/generic.rs
+
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/lib.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/soft.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/types.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ppv-lite86-0.2.21/src/generic.rs:

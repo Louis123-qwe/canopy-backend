@@ -1,0 +1,7 @@
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/futures_executor-71e89ca8fb59833c.d: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/libfutures_executor-71e89ca8fb59833c.rmeta: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs
+
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/lib.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/enter.rs:

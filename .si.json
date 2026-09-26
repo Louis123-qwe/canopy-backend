@@ -1,0 +1,22 @@
+{
+  "plugin": "org.smartide.plugin.rust",
+  "run": "cargo run",
+  "intelligence": {
+    ".json": {
+      "enabled": true,
+      "run": "vscode-json-language-server --stdio"
+    },
+    ".rs": {
+      "enabled": true,
+      "run": "rust-analyzer"
+    },
+    ".toml": {
+      "enabled": true,
+      "run": "taplo lsp stdio"
+    },
+    ".sql": {
+      "enabled": true,
+      "run": "sqls"
+    }
+  }
+}

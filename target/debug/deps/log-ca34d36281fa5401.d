@@ -1,0 +1,8 @@
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/log-ca34d36281fa5401.d: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/macros.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/serde.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/__private_api.rs
+
+/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/deps/liblog-ca34d36281fa5401.rmeta: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/macros.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/serde.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/__private_api.rs
+
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/lib.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/macros.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/serde.rs:
+/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.34/src/__private_api.rs:

@@ -1,0 +1,9 @@
+{
+  global:
+    __rustc_proc_macro_decls_d59fcd1e04bf695a__;
+    rust_metadata_sqlx_macros_d59fcd1e04bf695a;
+    __emutls_get_address;
+
+  local:
+    *;
+};
