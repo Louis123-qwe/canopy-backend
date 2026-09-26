@@ -1,12 +1,13 @@
-warning: failed to save last-use data
-This may prevent cargo from accurately tracking what is being used in its global cache. This information is used for automatically removing unused data in the cache.
-
-database is locked
-
-Caused by:
-  Error code 5: database is locked
-error: failed to remove file `/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/build/quote-360ff8da84739db9/build-script-build`
-
-Caused by:
-  No such file or directory (os error 2)
-warning: build failed, waiting for other jobs to finish...
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.67s
+kend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint: stale: changed "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/src/main.rs"
+   7.995350847s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint:           (vs) "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/.fingerprint/payguard_backend-05f7d8cca3c37708/dep-bin-payguard_backend"
+   7.995419770s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1790389809, nanos: 853990150 } < FileTime { seconds: 1790390309, nanos: 285990179 }
+   8.001904078s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint: fingerprint dirty for payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND)/Check { test: false }/TargetInner { name: "payguard_backend", doc: true, ..: with_path("/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/src/main.rs", Edition2021) }
+   8.002067693s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/.fingerprint/payguard_backend-05f7d8cca3c37708/dep-bin-payguard_backend", reference_mtime: FileTime { seconds: 1790389809, nanos: 853990150 }, stale: "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/src/main.rs", stale_mtime: FileTime { seconds: 1790390309, nanos: 285990179 } }))
+  10.930311386s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint: stale: changed "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/src/main.rs"
+  10.930474463s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint:           (vs) "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/.fingerprint/payguard_backend-2bf84406adccaa00/dep-test-bin-payguard_backend"
+  10.930528924s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1790389809, nanos: 853990150 } < FileTime { seconds: 1790390309, nanos: 285990179 }
+  10.950301232s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint: fingerprint dirty for payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND)/Check { test: true }/TargetInner { name: "payguard_backend", doc: true, ..: with_path("/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/src/main.rs", Edition2021) }
+  10.950464924s  INFO prepare_target{force=false package_id=payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND) target="payguard_backend"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/target/debug/.fingerprint/payguard_backend-2bf84406adccaa00/dep-test-bin-payguard_backend", reference_mtime: FileTime { seconds: 1790389809, nanos: 853990150 }, stale: "/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND/src/main.rs", stale_mtime: FileTime { seconds: 1790390309, nanos: 285990179 } }))
+    Checking payguard_backend v0.1.0 (/data/data/org.smartide.code/files/home/projects/PAYGUARD BACKEND)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 26.53s

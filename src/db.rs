@@ -42,6 +42,7 @@ pub async fn find_user_by_email(
 /// two signups with the same email land at nearly the same time
 /// — the handler already checks for an existing user first, but
 /// the constraint catches it even if both checks pass together.
+
 pub async fn insert_user(
     db: &PgPool,
     id: Uuid,

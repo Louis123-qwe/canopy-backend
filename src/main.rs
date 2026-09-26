@@ -138,7 +138,11 @@ async fn main() {
         .with_state(db)
         .layer(cors);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
+let addr = format!("0.0.0.0:{}", port);
+let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+println!("PayGuard escrow service running on {}", addr);
+
     println!("PayGuard escrow service running on port 3001");
     axum::serve(listener, app).await.unwrap();
 }
