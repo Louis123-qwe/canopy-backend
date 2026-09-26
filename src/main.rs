@@ -196,8 +196,15 @@ async fn health_check() -> Json<Value> {
 
 async fn create_escrow(
     State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
     ExtractJson(payload): ExtractJson<CreateEscrowRequest>,
 ) -> Json<Value> {
+    if payload.client_id != auth_user.user_id.to_string() {
+        return Json(json!({
+            "status": "error",
+            "message": "You can only create escrows where you are the client"
+        }));
+    }
     let milestones: Vec<Milestone> = match payload.milestones {
         Some(inputs) => inputs
             .into_iter()
