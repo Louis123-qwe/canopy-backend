@@ -134,7 +134,8 @@ async fn main() {
         .route("/escrow/:id", get(get_escrow))
         .route("/auth/signup", post(auth::signup))
         .route("/auth/login", post(auth::login))
-        .route("/my-escrows", get(auth::my_escrows)) // NEW
+        .route("/my-escrows", get(auth::my_escrows))
+        .route("/users/lookup", get(auth::lookup_user))
         .with_state(db)
         .layer(cors);
 
