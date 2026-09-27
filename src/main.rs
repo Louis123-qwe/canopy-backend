@@ -18,12 +18,26 @@ pub type Db = PgPool;
 struct MilestoneInput {
     title: String,
     amount: f64,
+    deadline: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct CreateEscrowRequest {
+struct ProposeEscrowRequest {
     client_id: String,
-    freelancer_id: String,
+    amount: f64,
+    description: String,
+    milestones: Option<Vec<MilestoneInput>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RespondProposalRequest {
+    escrow_id: String,
+    accept: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UpdateProposalRequest {
+    escrow_id: String,
     amount: f64,
     description: String,
     milestones: Option<Vec<MilestoneInput>>,
@@ -68,6 +82,7 @@ pub struct Milestone {
     pub title: String,
     pub amount: f64,
     pub status: String,
+    pub deadline: Option<String>,
     pub proof_note: Option<String>,
     pub delivered_at: Option<String>,
     pub confirmed_at: Option<String>,
@@ -124,7 +139,9 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(health_check))
-        .route("/create-escrow", post(create_escrow))
+        .route("/propose-escrow", post(propose_escrow))
+        .route("/respond-proposal", post(respond_to_proposal))
+        .route("/update-proposal", post(update_proposal))
         .route("/deliver-milestone", post(deliver_milestone))
         .route("/confirm-milestone", post(confirm_milestone))
         .route("/dispute", post(dispute_escrow))
@@ -192,44 +209,16 @@ async fn health_check() -> Json<Value> {
     Json(json!({ "status": "ok", "service": "pay_guard" }))
 }
 
-async fn create_escrow(
+async fn propose_escrow(
     State(db): State<PgPool>,
     auth_user: auth::AuthUser,
-    ExtractJson(payload): ExtractJson<CreateEscrowRequest>,
+    ExtractJson(payload): ExtractJson<ProposeEscrowRequest>,
 ) -> Json<Value> {
-    if payload.client_id != auth_user.user_id.to_string() {
-        return Json(json!({
-            "status": "error",
-            "message": "You can only create escrows where you are the client"
-        }));
-    }
-
-    let milestones: Vec<Milestone> = match payload.milestones {
-        Some(inputs) => inputs
-            .into_iter()
-            .map(|m| Milestone {
-                id: Uuid::new_v4().to_string(),
-                title: m.title,
-                amount: m.amount,
-                status: "pending".to_string(),
-                proof_note: None,
-                delivered_at: None,
-                confirmed_at: None,
-            })
-            .collect(),
-        None => vec![Milestone {
-            id: Uuid::new_v4().to_string(),
-            title: "Full delivery".to_string(),
-            amount: payload.amount,
-            status: "pending".to_string(),
-            proof_note: None,
-            delivered_at: None,
-            confirmed_at: None,
-        }],
-    };
+    let milestones: Vec<Milestone> = build_milestones(payload.milestones, payload.amount);
 
     let escrow_id = Uuid::new_v4();
     let milestones_json = SqlxJson(milestones.clone());
+    let freelancer_id = auth_user.user_id.to_string();
 
     let result = sqlx::query(
         r#"
@@ -239,10 +228,10 @@ async fn create_escrow(
     )
     .bind(escrow_id)
     .bind(&payload.client_id)
-    .bind(&payload.freelancer_id)
+    .bind(&freelancer_id)
     .bind(payload.amount)
     .bind(&payload.description)
-    .bind("pending")
+    .bind("proposed")
     .bind(&milestones_json)
     .execute(&db)
     .await;
@@ -252,14 +241,137 @@ async fn create_escrow(
             let escrow = Escrow {
                 id: escrow_id.to_string(),
                 client_id: payload.client_id,
-                freelancer_id: payload.freelancer_id,
+                freelancer_id,
                 amount: payload.amount,
                 description: payload.description,
-                status: "pending".to_string(),
+                status: "proposed".to_string(),
                 milestones,
             };
-            Json(json!({ "status": "created", "escrow": escrow }))
+            Json(json!({ "status": "proposed", "escrow": escrow }))
         }
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+}
+
+fn build_milestones(inputs: Option<Vec<MilestoneInput>>, total_amount: f64) -> Vec<Milestone> {
+    match inputs {
+        Some(list) => list
+            .into_iter()
+            .map(|m| Milestone {
+                id: Uuid::new_v4().to_string(),
+                title: m.title,
+                amount: m.amount,
+                status: "pending".to_string(),
+                deadline: m.deadline,
+                proof_note: None,
+                delivered_at: None,
+                confirmed_at: None,
+            })
+            .collect(),
+        None => vec![Milestone {
+            id: Uuid::new_v4().to_string(),
+            title: "Full delivery".to_string(),
+            amount: total_amount,
+            status: "pending".to_string(),
+            deadline: None,
+            proof_note: None,
+            delivered_at: None,
+            confirmed_at: None,
+        }],
+    }
+}
+
+async fn respond_to_proposal(
+    State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
+    ExtractJson(payload): ExtractJson<RespondProposalRequest>,
+) -> Json<Value> {
+    let row = match fetch_escrow_row(&db, &payload.escrow_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Json(json!({ "status": "error", "message": "escrow not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    let mut escrow: Escrow = row.into();
+
+    if escrow.client_id != auth_user.user_id.to_string() {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the client on this escrow can accept or reject it"
+        }));
+    }
+
+    if escrow.status != "proposed" {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot respond to an escrow in status '{}'", escrow.status)
+        }));
+    }
+
+    escrow.status = if payload.accept { "accepted".to_string() } else { "rejected".to_string() };
+
+    let escrow_uuid = Uuid::parse_str(&escrow.id).unwrap();
+    let result = sqlx::query(r#"UPDATE escrows SET status = $1 WHERE id = $2"#)
+        .bind(&escrow.status)
+        .bind(escrow_uuid)
+        .execute(&db)
+        .await;
+
+    match result {
+        Ok(_) => Json(json!({ "status": escrow.status.clone(), "escrow": escrow })),
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+}
+
+async fn update_proposal(
+    State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
+    ExtractJson(payload): ExtractJson<UpdateProposalRequest>,
+) -> Json<Value> {
+    let row = match fetch_escrow_row(&db, &payload.escrow_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Json(json!({ "status": "error", "message": "escrow not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    let mut escrow: Escrow = row.into();
+
+    if escrow.freelancer_id != auth_user.user_id.to_string() {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the freelancer who proposed this escrow can edit it"
+        }));
+    }
+
+    if escrow.status != "proposed" && escrow.status != "rejected" {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot edit an escrow in status '{}'", escrow.status)
+        }));
+    }
+
+    let milestones = build_milestones(payload.milestones, payload.amount);
+    let milestones_json = SqlxJson(milestones.clone());
+
+    escrow.amount = payload.amount;
+    escrow.description = payload.description;
+    escrow.milestones = milestones;
+    escrow.status = "proposed".to_string();
+
+    let escrow_uuid = Uuid::parse_str(&escrow.id).unwrap();
+    let result = sqlx::query(
+        r#"UPDATE escrows SET amount = $1, description = $2, milestones = $3, status = $4 WHERE id = $5"#,
+    )
+    .bind(escrow.amount)
+    .bind(&escrow.description)
+    .bind(&milestones_json)
+    .bind(&escrow.status)
+    .bind(escrow_uuid)
+    .execute(&db)
+    .await;
+
+    match result {
+        Ok(_) => Json(json!({ "status": "proposed", "escrow": escrow })),
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
 }
