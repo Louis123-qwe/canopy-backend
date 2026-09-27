@@ -118,7 +118,7 @@ async fn main() {
     let db = init_db().await;
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin("https://canopy-lime.vercel.app".parse::<axum::http::HeaderValue>().unwrap())
         .allow_methods(Any)
         .allow_headers(Any);
 
