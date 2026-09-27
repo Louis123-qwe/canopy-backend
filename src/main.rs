@@ -62,10 +62,6 @@ struct PaystackVerifyData {
     reference: String,
 }
 
-// ---------- Made pub, plus pub fields, so auth.rs / db.rs can
-// share these same shapes for the /my-escrows endpoint. Nothing
-// about their behavior changed — only visibility. ----------
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Milestone {
     pub id: String,
@@ -117,6 +113,8 @@ impl From<EscrowRow> for Escrow {
 async fn main() {
     dotenvy::dotenv().ok();
 
+    std::env::var("JWT_SECRET").expect("JWT_SECRET environment variable not set");
+
     let db = init_db().await;
 
     let cors = CorsLayer::new()
@@ -140,11 +138,10 @@ async fn main() {
         .layer(cors);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
-let addr = format!("0.0.0.0:{}", port);
-let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-println!("PayGuard escrow service running on {}", addr);
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    println!("PayGuard escrow service running on {}", addr);
 
-    println!("PayGuard escrow service running on port 3001");
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -206,6 +203,7 @@ async fn create_escrow(
             "message": "You can only create escrows where you are the client"
         }));
     }
+
     let milestones: Vec<Milestone> = match payload.milestones {
         Some(inputs) => inputs
             .into_iter()
@@ -285,6 +283,7 @@ async fn fetch_escrow_row(db: &PgPool, escrow_id: &str) -> Result<Option<EscrowR
 
 async fn deliver_milestone(
     State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
     ExtractJson(payload): ExtractJson<DeliverMilestoneRequest>,
 ) -> Json<Value> {
     let row = match fetch_escrow_row(&db, &payload.escrow_id).await {
@@ -294,6 +293,13 @@ async fn deliver_milestone(
     };
 
     let mut escrow: Escrow = row.into();
+
+    if escrow.freelancer_id != auth_user.user_id.to_string() {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the freelancer on this escrow can deliver a milestone"
+        }));
+    }
 
     let milestone_found = escrow.milestones.iter_mut().find(|m| m.id == payload.milestone_id);
 
@@ -329,6 +335,7 @@ async fn deliver_milestone(
 
 async fn confirm_milestone(
     State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
     ExtractJson(payload): ExtractJson<DeliverMilestoneRequest>,
 ) -> Json<Value> {
     let row = match fetch_escrow_row(&db, &payload.escrow_id).await {
@@ -338,6 +345,13 @@ async fn confirm_milestone(
     };
 
     let mut escrow: Escrow = row.into();
+
+    if escrow.client_id != auth_user.user_id.to_string() {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the client on this escrow can confirm a milestone"
+        }));
+    }
 
     let milestone_found = escrow.milestones.iter_mut().find(|m| m.id == payload.milestone_id);
 
@@ -378,6 +392,7 @@ async fn confirm_milestone(
 
 async fn dispute_escrow(
     State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
     ExtractJson(payload): ExtractJson<DisputeEscrowRequest>,
 ) -> Json<Value> {
     let row = match fetch_escrow_row(&db, &payload.escrow_id).await {
@@ -387,6 +402,15 @@ async fn dispute_escrow(
     };
 
     let mut escrow: Escrow = row.into();
+
+    let caller_id = auth_user.user_id.to_string();
+    if escrow.client_id != caller_id && escrow.freelancer_id != caller_id {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the client or freelancer on this escrow can raise a dispute"
+        }));
+    }
+
     escrow.status = "disputed".to_string();
 
     let raised_at = chrono::Utc::now().to_rfc3339();
