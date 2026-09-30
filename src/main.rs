@@ -856,7 +856,8 @@ async fn get_escrow(State(db): State<PgPool>, Path(id): Path<String>) -> Json<Va
     match fetch_escrow_row(&db, &id).await {
         Ok(Some(row)) => {
             let escrow: Escrow = row.into();
-            Json(json!({ "status": "ok", "escrow": escrow }))
+            let dispute = fetch_open_dispute(&db, &id).await.ok().flatten();
+            Json(json!({ "status": "ok", "escrow": escrow, "dispute": dispute }))
         }
         Ok(None) => Json(json!({ "status": "error", "message": "escrow not found" })),
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
