@@ -37,12 +37,32 @@ pub async fn find_user_by_email(
     .await
 }
 
+pub async fn find_user_by_id(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    let uuid = match Uuid::parse_str(id) {
+        Ok(u) => u,
+        Err(_) => return Ok(None),
+    };
+
+    sqlx::query_as::<_, UserRow>(
+        r#"
+        SELECT id, first_name, last_name, email, password_hash
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(uuid)
+    .fetch_optional(db)
+    .await
+}
+
 /// Inserts a new user row. The `users` table's UNIQUE constraint
 /// on `email` is a second line of defense against the race where
 /// two signups with the same email land at nearly the same time
 /// — the handler already checks for an existing user first, but
 /// the constraint catches it even if both checks pass together.
-
 pub async fn insert_user(
     db: &PgPool,
     id: Uuid,

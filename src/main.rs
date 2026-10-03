@@ -1,5 +1,6 @@
 mod auth;
 mod db;
+mod email;
 use axum::{
     extract::{Json as ExtractJson, Path, State},
     routing::{get, post},
@@ -160,6 +161,11 @@ async fn main() {
 
     let db = init_db().await;
 
+    let sweep_db = db.clone();
+    tokio::spawn(async move {
+        run_dispute_sweep(sweep_db).await;
+    });
+
     let cors = CorsLayer::new()
         .allow_origin("https://canopy-lime.vercel.app".parse::<axum::http::HeaderValue>().unwrap())
         .allow_methods(Any)
@@ -243,6 +249,78 @@ async fn init_db() -> PgPool {
     pool
 }
 
+#[derive(sqlx::FromRow)]
+struct SweepDisputeRow {
+    id: Uuid,
+    escrow_id: Uuid,
+    status: String,
+    last_action_by: String,
+}
+
+async fn run_dispute_sweep(db: PgPool) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+
+        let reminders = sqlx::query_as::<_, SweepDisputeRow>(
+            r#"
+            SELECT id, escrow_id, status, last_action_by FROM disputes
+            WHERE status IN ('open', 'countered')
+            AND last_action_at < now() - INTERVAL '72 hours'
+            AND last_action_at >= now() - INTERVAL '73 hours'
+            "#,
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap_or_default();
+
+        for d in reminders {
+            if let Ok(Some(row)) = fetch_escrow_row(&db, &d.escrow_id.to_string()).await {
+                let escrow: Escrow = row.into();
+                let waiting_on_id = if d.last_action_by == escrow.client_id {
+                    &escrow.freelancer_id
+                } else {
+                    &escrow.client_id
+                };
+                if let Ok(Some(user)) = db::find_user_by_id(&db, waiting_on_id).await {
+                    email::dispute_reminder(&user.email, &escrow.id).await;
+                }
+            }
+        }
+
+        let overdue = sqlx::query_as::<_, SweepDisputeRow>(
+            r#"
+            SELECT id, escrow_id, status, last_action_by FROM disputes
+            WHERE status IN ('open', 'countered')
+            AND last_action_at < now() - INTERVAL '96 hours'
+            "#,
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap_or_default();
+
+        for d in overdue {
+            let update = sqlx::query(
+                r#"UPDATE disputes SET status = 'escalated', last_action_at = now() WHERE id = $1"#,
+            )
+            .bind(d.id)
+            .execute(&db)
+            .await;
+
+            if update.is_ok() {
+                if let Ok(Some(row)) = fetch_escrow_row(&db, &d.escrow_id.to_string()).await {
+                    let escrow: Escrow = row.into();
+                    if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                        email::dispute_escalated(&client.email, &escrow.id).await;
+                    }
+                    if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+                        email::dispute_escalated(&freelancer.email, &escrow.id).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn health_check() -> Json<Value> {
     Json(json!({ "status": "ok", "service": "pay_guard" }))
 }
@@ -279,12 +357,20 @@ async fn propose_escrow(
             let escrow = Escrow {
                 id: escrow_id.to_string(),
                 client_id: payload.client_id,
-                freelancer_id,
+                freelancer_id: freelancer_id.clone(),
                 amount: payload.amount,
                 description: payload.description,
                 status: "proposed".to_string(),
                 milestones,
             };
+
+            if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &freelancer_id).await {
+                    let freelancer_name = format!("{} {}", freelancer.first_name, freelancer.last_name);
+                    email::proposal_sent(&client.email, &freelancer_name, &escrow.id).await;
+                }
+            }
+
             Json(json!({ "status": "proposed", "escrow": escrow }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
@@ -356,7 +442,16 @@ async fn respond_to_proposal(
         .await;
 
     match result {
-        Ok(_) => Json(json!({ "status": escrow.status.clone(), "escrow": escrow })),
+        Ok(_) => {
+            if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+                if payload.accept {
+                    email::proposal_accepted(&freelancer.email, &escrow.id).await;
+                } else {
+                    email::proposal_rejected(&freelancer.email, &escrow.id).await;
+                }
+            }
+            Json(json!({ "status": escrow.status.clone(), "escrow": escrow }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
 }
@@ -478,7 +573,12 @@ async fn deliver_milestone(
         .await;
 
     match result {
-        Ok(_) => Json(json!({ "status": "delivered", "escrow": escrow })),
+        Ok(_) => {
+            if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                email::milestone_delivered(&client.email, &escrow.id).await;
+            }
+            Json(json!({ "status": "delivered", "escrow": escrow }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
 }
@@ -535,7 +635,12 @@ async fn confirm_milestone(
         .await;
 
     match result {
-        Ok(_) => Json(json!({ "status": "confirmed", "escrow": escrow })),
+        Ok(_) => {
+            if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+                email::milestone_confirmed(&freelancer.email, &escrow.id).await;
+            }
+            Json(json!({ "status": "confirmed", "escrow": escrow }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
 }
@@ -639,7 +744,12 @@ async fn dispute_escrow(
         .await;
 
     match update_result {
-        Ok(_) => Json(json!({ "status": "disputed", "escrow": escrow })),
+        Ok(_) => {
+            if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+                email::dispute_raised(&freelancer.email, &escrow.id).await;
+            }
+            Json(json!({ "status": "disputed", "escrow": escrow }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
 }
@@ -672,6 +782,12 @@ async fn respond_dispute(
             if let Err(e) = apply_split_and_close(&db, &escrow, dispute.id, dispute.proposed_split_freelancer_pct).await {
                 return Json(json!({ "status": "error", "message": e.to_string() }));
             }
+            if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                email::dispute_resolved(&client.email, &escrow.id).await;
+            }
+            if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+                email::dispute_resolved(&freelancer.email, &escrow.id).await;
+            }
             Json(json!({ "status": "resolved", "freelancer_pct": dispute.proposed_split_freelancer_pct }))
         }
         "reject" => {
@@ -689,7 +805,12 @@ async fn respond_dispute(
             .execute(&db)
             .await;
             match result {
-                Ok(_) => Json(json!({ "status": "escalated" })),
+                Ok(_) => {
+                    if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                        email::dispute_escalated(&client.email, &escrow.id).await;
+                    }
+                    Json(json!({ "status": "escalated" }))
+                }
                 Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
             }
         }
@@ -708,7 +829,12 @@ async fn respond_dispute(
             .execute(&db)
             .await;
             match result {
-                Ok(_) => Json(json!({ "status": "countered", "counter_split_freelancer_pct": pct })),
+                Ok(_) => {
+                    if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                        email::dispute_countered(&client.email, &escrow.id).await;
+                    }
+                    Json(json!({ "status": "countered", "counter_split_freelancer_pct": pct }))
+                }
                 Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
             }
         }
@@ -744,6 +870,12 @@ async fn respond_counter(
         if let Err(e) = apply_split_and_close(&db, &escrow, dispute.id, pct).await {
             return Json(json!({ "status": "error", "message": e.to_string() }));
         }
+        if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+            email::dispute_resolved(&client.email, &escrow.id).await;
+        }
+        if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+            email::dispute_resolved(&freelancer.email, &escrow.id).await;
+        }
         Json(json!({ "status": "resolved", "freelancer_pct": pct }))
     } else {
         let result = sqlx::query(
@@ -754,7 +886,12 @@ async fn respond_counter(
         .execute(&db)
         .await;
         match result {
-            Ok(_) => Json(json!({ "status": "escalated" })),
+            Ok(_) => {
+                if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+                    email::dispute_escalated(&freelancer.email, &escrow.id).await;
+                }
+                Json(json!({ "status": "escalated" }))
+            }
             Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
         }
     }
