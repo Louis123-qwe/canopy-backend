@@ -53,12 +53,15 @@ async fn send_email(to: &str, subject: &str, html: String) {
         }
     };
 
+    let from = std::env::var("EMAIL_FROM")
+        .unwrap_or_else(|_| "Canopy <onboarding@resend.dev>".to_string());
+
     let client = reqwest::Client::new();
     let result = client
         .post("https://api.resend.com/emails")
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&json!({
-            "from": "Canopy <notifications@canopy.app>",
+            "from": from,
             "to": [to],
             "subject": subject,
             "html": html
@@ -66,8 +69,14 @@ async fn send_email(to: &str, subject: &str, html: String) {
         .send()
         .await;
 
-    if let Err(e) = result {
-        eprintln!("Failed to send email to {to}: {e}");
+    match result {
+        Ok(resp) if resp.status().is_success() => {}
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            eprintln!("Resend rejected email to {to}: {status} {body}");
+        }
+        Err(e) => eprintln!("Failed to send email to {to}: {e}"),
     }
 }
 
