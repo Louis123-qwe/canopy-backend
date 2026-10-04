@@ -72,6 +72,13 @@ struct RespondCounterRequest {
     accept: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct AdminResolveRequest {
+    dispute_id: String,
+    freelancer_pct: f64,
+    note: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 struct DisputeRow {
     id: Uuid,
@@ -83,6 +90,19 @@ struct DisputeRow {
     counter_split_freelancer_pct: Option<f64>,
     counter_reason: Option<String>,
     last_action_by: String,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct AdminDisputeRow {
+    id: Uuid,
+    escrow_id: Uuid,
+    raised_by: String,
+    reason: String,
+    proposed_split_freelancer_pct: f64,
+    counter_split_freelancer_pct: Option<f64>,
+    counter_reason: Option<String>,
+    last_action_by: String,
+    created_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -183,6 +203,9 @@ async fn main() {
         .route("/respond-counter", post(respond_counter))
         .route("/verify-payment", post(verify_payment))
         .route("/escrow/:id", get(get_escrow))
+        .route("/admin/check", get(admin_check))
+        .route("/admin/disputes", get(admin_list_disputes))
+        .route("/admin/disputes/resolve", post(admin_resolve_dispute))
         .route("/auth/signup", post(auth::signup))
         .route("/auth/login", post(auth::login))
         .route("/my-escrows", get(auth::my_escrows))
@@ -193,7 +216,7 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    println!("PayGuard escrow service running on {}", addr);
+    println!("Canopy escrow service running on {}", addr);
 
     axum::serve(listener, app).await.unwrap();
 }
@@ -238,7 +261,10 @@ async fn init_db() -> PgPool {
             last_action_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             last_action_by TEXT NOT NULL,
             resolved_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            final_split_freelancer_pct DOUBLE PRECISION,
+            resolved_by TEXT,
+            admin_note TEXT
         )
         "#,
     )
@@ -322,7 +348,7 @@ async fn run_dispute_sweep(db: PgPool) {
 }
 
 async fn health_check() -> Json<Value> {
-    Json(json!({ "status": "ok", "service": "pay_guard" }))
+    Json(json!({ "status": "ok", "service": "canopy" }))
 }
 
 async fn propose_escrow(
@@ -666,6 +692,27 @@ async fn fetch_open_dispute(db: &PgPool, escrow_id: &str) -> Result<Option<Dispu
     .await
 }
 
+async fn fetch_visible_dispute(db: &PgPool, escrow_id: &str) -> Result<Option<DisputeRow>, sqlx::Error> {
+    let uuid = match Uuid::parse_str(escrow_id) {
+        Ok(u) => u,
+        Err(_) => return Ok(None),
+    };
+
+    sqlx::query_as::<_, DisputeRow>(
+        r#"
+        SELECT id, escrow_id, raised_by, reason, proposed_split_freelancer_pct,
+               status, counter_split_freelancer_pct, counter_reason, last_action_by
+        FROM disputes
+        WHERE escrow_id = $1 AND status IN ('open', 'countered', 'escalated')
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(uuid)
+    .fetch_optional(db)
+    .await
+}
+
 async fn apply_split_and_close(
     db: &PgPool,
     escrow: &Escrow,
@@ -681,6 +728,7 @@ async fn apply_split_and_close(
 
     sqlx::query(
         r#"UPDATE disputes SET status = 'resolved', resolved_at = now(),
+           final_split_freelancer_pct = $1,
            counter_split_freelancer_pct = COALESCE(counter_split_freelancer_pct, $1)
            WHERE id = $2"#,
     )
@@ -897,6 +945,142 @@ async fn respond_counter(
     }
 }
 
+async fn is_admin(db: &PgPool, user_id: &str) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT is_admin FROM users WHERE id::text = $1")
+        .bind(user_id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
+async fn admin_check(State(db): State<PgPool>, auth_user: auth::AuthUser) -> Json<Value> {
+    let admin = is_admin(&db, &auth_user.user_id.to_string()).await;
+    Json(json!({ "is_admin": admin }))
+}
+
+async fn admin_list_disputes(State(db): State<PgPool>, auth_user: auth::AuthUser) -> Json<Value> {
+    if !is_admin(&db, &auth_user.user_id.to_string()).await {
+        return Json(json!({ "status": "error", "message": "Admin access required" }));
+    }
+
+    let rows = sqlx::query_as::<_, AdminDisputeRow>(
+        r#"
+        SELECT id, escrow_id, raised_by, reason, proposed_split_freelancer_pct,
+               counter_split_freelancer_pct, counter_reason, last_action_by,
+               created_at::text AS created_at
+        FROM disputes
+        WHERE status = 'escalated'
+        ORDER BY last_action_at ASC
+        "#,
+    )
+    .fetch_all(&db)
+    .await;
+
+    match rows {
+        Ok(list) => {
+            let mut out = Vec::new();
+            for d in list {
+                let escrow = fetch_escrow_row(&db, &d.escrow_id.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(Escrow::from);
+                out.push(json!({ "dispute": d, "escrow": escrow }));
+            }
+            Json(json!({ "status": "ok", "disputes": out }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+}
+
+async fn admin_resolve_dispute(
+    State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
+    ExtractJson(payload): ExtractJson<AdminResolveRequest>,
+) -> Json<Value> {
+    let admin_id = auth_user.user_id.to_string();
+    if !is_admin(&db, &admin_id).await {
+        return Json(json!({ "status": "error", "message": "Admin access required" }));
+    }
+
+    if !(0.0..=100.0).contains(&payload.freelancer_pct) {
+        return Json(json!({ "status": "error", "message": "split must be between 0 and 100" }));
+    }
+
+    let dispute_uuid = match Uuid::parse_str(&payload.dispute_id) {
+        Ok(u) => u,
+        Err(_) => return Json(json!({ "status": "error", "message": "invalid dispute id" })),
+    };
+
+    let dispute = match sqlx::query_as::<_, SweepDisputeRow>(
+        r#"SELECT id, escrow_id, status, last_action_by FROM disputes WHERE id = $1"#,
+    )
+    .bind(dispute_uuid)
+    .fetch_optional(&db)
+    .await
+    {
+        Ok(Some(d)) => d,
+        Ok(None) => return Json(json!({ "status": "error", "message": "dispute not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    if dispute.status != "escalated" {
+        return Json(json!({
+            "status": "error",
+            "message": format!("only escalated disputes can be resolved by an admin, this one is '{}'", dispute.status)
+        }));
+    }
+
+    let escrow = match fetch_escrow_row(&db, &dispute.escrow_id.to_string()).await {
+        Ok(Some(r)) => Escrow::from(r),
+        Ok(None) => return Json(json!({ "status": "error", "message": "escrow not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    let update = sqlx::query(
+        r#"
+        UPDATE disputes
+        SET status = 'resolved', resolved_at = now(), final_split_freelancer_pct = $1,
+            resolved_by = $2, admin_note = $3
+        WHERE id = $4 AND status = 'escalated'
+        "#,
+    )
+    .bind(payload.freelancer_pct)
+    .bind(&admin_id)
+    .bind(&payload.note)
+    .bind(dispute.id)
+    .execute(&db)
+    .await;
+
+    match update {
+        Ok(r) if r.rows_affected() == 0 => {
+            return Json(json!({ "status": "error", "message": "dispute was already resolved" }));
+        }
+        Ok(_) => {}
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+
+    let escrow_uuid = Uuid::parse_str(&escrow.id).unwrap();
+    if let Err(e) = sqlx::query(r#"UPDATE escrows SET status = 'confirmed' WHERE id = $1"#)
+        .bind(escrow_uuid)
+        .execute(&db)
+        .await
+    {
+        return Json(json!({ "status": "error", "message": e.to_string() }));
+    }
+
+    if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+        email::dispute_resolved(&client.email, &escrow.id).await;
+    }
+    if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+        email::dispute_resolved(&freelancer.email, &escrow.id).await;
+    }
+
+    Json(json!({ "status": "resolved", "freelancer_pct": payload.freelancer_pct }))
+}
+
 async fn verify_payment(
     State(db): State<PgPool>,
     ExtractJson(payload): ExtractJson<VerifyPaymentRequest>,
@@ -993,7 +1177,7 @@ async fn get_escrow(State(db): State<PgPool>, Path(id): Path<String>) -> Json<Va
     match fetch_escrow_row(&db, &id).await {
         Ok(Some(row)) => {
             let escrow: Escrow = row.into();
-            let dispute = fetch_open_dispute(&db, &id).await.ok().flatten();
+            let dispute = fetch_visible_dispute(&db, &id).await.ok().flatten();
             Json(json!({ "status": "ok", "escrow": escrow, "dispute": dispute }))
         }
         Ok(None) => Json(json!({ "status": "error", "message": "escrow not found" })),
