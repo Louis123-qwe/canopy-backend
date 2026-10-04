@@ -114,6 +114,24 @@ pub async fn milestone_confirmed(freelancer_email: &str, escrow_id: &str) {
     send_email(freelancer_email, "Milestone confirmed", html).await;
 }
 
+pub async fn extension_requested(client_email: &str, escrow_id: &str) {
+    let body = "The freelancer asked for more time on a milestone. Review the new date and the reason, then approve or decline.".to_string();
+    let html = wrap_template("Extension requested", &body, "Review request", &app_url(escrow_id));
+    send_email(client_email, "A deadline extension needs your response", html).await;
+}
+
+pub async fn extension_approved(freelancer_email: &str, escrow_id: &str) {
+    let body = "The client approved your extension request. The milestone deadline has been updated.".to_string();
+    let html = wrap_template("Extension approved", &body, "View escrow", &app_url(escrow_id));
+    send_email(freelancer_email, "Your extension request was approved", html).await;
+}
+
+pub async fn extension_declined(freelancer_email: &str, escrow_id: &str) {
+    let body = "The client declined your extension request. The original deadline still applies.".to_string();
+    let html = wrap_template("Extension declined", &body, "View escrow", &app_url(escrow_id));
+    send_email(freelancer_email, "Your extension request was declined", html).await;
+}
+
 pub async fn dispute_raised(freelancer_email: &str, escrow_id: &str) {
     let body = "A dispute was raised on this escrow. You have 96 hours to respond.".to_string();
     let html = wrap_template("A dispute was raised", &body, "Respond now", &app_url(escrow_id));
