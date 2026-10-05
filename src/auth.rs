@@ -93,7 +93,7 @@ fn error_response(status: StatusCode, message: &str) -> (StatusCode, Json<Value>
 
 // ---------- JWT issuing ----------
 
-fn issue_token(user_id: &str, email: &str) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn issue_token(user_id: &str, email: &str) -> Result<String, jsonwebtoken::errors::Error> {
     // In production, load this from an environment variable —
     // never hardcode a real secret. Treat this the same way you
     // treated firebase.json: never paste the real value in chat.

@@ -1,6 +1,7 @@
 mod auth;
 mod db;
 mod email;
+mod google;
 use axum::{
     extract::{Json as ExtractJson, Path, State},
     routing::{get, post},
@@ -13,19 +14,20 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use sqlx::types::Json as SqlxJson;
 use tower_http::cors::{CorsLayer, Any};
+use chrono::NaiveDate;
 pub type Db = PgPool;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MilestoneInput {
     title: String,
-    amount: f64,
+    amount: i64,
     deadline: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ProposeEscrowRequest {
     client_id: String,
-    amount: f64,
+    amount: i64,
     description: String,
     milestones: Option<Vec<MilestoneInput>>,
 }
@@ -39,7 +41,7 @@ struct RespondProposalRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct UpdateProposalRequest {
     escrow_id: String,
-    amount: f64,
+    amount: i64,
     description: String,
     milestones: Option<Vec<MilestoneInput>>,
 }
@@ -70,6 +72,32 @@ struct RespondDisputeRequest {
 struct RespondCounterRequest {
     escrow_id: String,
     accept: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct RequestExtensionRequest {
+    escrow_id: String,
+    milestone_id: String,
+    new_deadline: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RespondExtensionRequest {
+    request_id: String,
+    accept: bool,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct ExtensionRow {
+    id: Uuid,
+    escrow_id: Uuid,
+    milestone_id: String,
+    requested_by: String,
+    current_deadline: Option<String>,
+    new_deadline: String,
+    reason: String,
+    status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,7 +157,7 @@ struct PaystackVerifyData {
 pub struct Milestone {
     pub id: String,
     pub title: String,
-    pub amount: f64,
+    pub amount: i64,
     pub status: String,
     pub deadline: Option<String>,
     pub proof_note: Option<String>,
@@ -142,7 +170,7 @@ pub struct Escrow {
     pub id: String,
     pub client_id: String,
     pub freelancer_id: String,
-    pub amount: f64,
+    pub amount: i64,
     pub description: String,
     pub status: String,
     pub milestones: Vec<Milestone>,
@@ -153,7 +181,7 @@ pub struct EscrowRow {
     pub id: Uuid,
     pub client_id: String,
     pub freelancer_id: String,
-    pub amount: f64,
+    pub amount: i64,
     pub description: String,
     pub status: String,
     pub milestones: SqlxJson<Vec<Milestone>>,
@@ -201,6 +229,8 @@ async fn main() {
         .route("/dispute", post(dispute_escrow))
         .route("/respond-dispute", post(respond_dispute))
         .route("/respond-counter", post(respond_counter))
+        .route("/request-extension", post(request_extension))
+        .route("/respond-extension", post(respond_extension))
         .route("/verify-payment", post(verify_payment))
         .route("/escrow/:id", get(get_escrow))
         .route("/admin/check", get(admin_check))
@@ -208,6 +238,7 @@ async fn main() {
         .route("/admin/disputes/resolve", post(admin_resolve_dispute))
         .route("/auth/signup", post(auth::signup))
         .route("/auth/login", post(auth::login))
+        .route("/auth/google", post(google::google_login))
         .route("/my-escrows", get(auth::my_escrows))
         .route("/users/lookup", get(auth::lookup_user))
         .with_state(db)
@@ -236,7 +267,7 @@ async fn init_db() -> PgPool {
             id UUID PRIMARY KEY,
             client_id TEXT NOT NULL,
             freelancer_id TEXT NOT NULL,
-            amount DOUBLE PRECISION NOT NULL,
+            amount BIGINT NOT NULL,
             description TEXT NOT NULL,
             status TEXT NOT NULL,
             milestones JSONB NOT NULL
@@ -271,6 +302,26 @@ async fn init_db() -> PgPool {
     .execute(&pool)
     .await
     .expect("Failed to create disputes table");
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS extension_requests (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            escrow_id UUID NOT NULL,
+            milestone_id TEXT NOT NULL,
+            requested_by TEXT NOT NULL,
+            current_deadline TEXT,
+            new_deadline TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            responded_at TIMESTAMPTZ
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create extension_requests table");
 
     pool
 }
@@ -356,6 +407,10 @@ async fn propose_escrow(
     auth_user: auth::AuthUser,
     ExtractJson(payload): ExtractJson<ProposeEscrowRequest>,
 ) -> Json<Value> {
+    if let Err(msg) = validate_amounts(payload.amount, &payload.milestones) {
+        return Json(json!({ "status": "error", "message": msg }));
+    }
+
     let milestones: Vec<Milestone> = build_milestones(payload.milestones, payload.amount);
 
     let escrow_id = Uuid::new_v4();
@@ -403,7 +458,32 @@ async fn propose_escrow(
     }
 }
 
-fn build_milestones(inputs: Option<Vec<MilestoneInput>>, total_amount: f64) -> Vec<Milestone> {
+fn validate_amounts(amount: i64, milestones: &Option<Vec<MilestoneInput>>) -> Result<(), String> {
+    if amount <= 0 {
+        return Err("amount must be greater than zero".to_string());
+    }
+    if let Some(list) = milestones {
+        if list.is_empty() {
+            return Err("add at least one milestone".to_string());
+        }
+        let mut total: i64 = 0;
+        for m in list {
+            if m.amount <= 0 {
+                return Err("every milestone needs an amount greater than zero".to_string());
+            }
+            total = match total.checked_add(m.amount) {
+                Some(t) => t,
+                None => return Err("amount is too large".to_string()),
+            };
+        }
+        if total != amount {
+            return Err("milestone amounts must add up to the total".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn build_milestones(inputs: Option<Vec<MilestoneInput>>, total_amount: i64) -> Vec<Milestone> {
     match inputs {
         Some(list) => list
             .into_iter()
@@ -507,6 +587,10 @@ async fn update_proposal(
             "status": "error",
             "message": format!("cannot edit an escrow in status '{}'", escrow.status)
         }));
+    }
+
+    if let Err(msg) = validate_amounts(payload.amount, &payload.milestones) {
+        return Json(json!({ "status": "error", "message": msg }));
     }
 
     let milestones = build_milestones(payload.milestones, payload.amount);
@@ -1093,6 +1177,13 @@ async fn verify_payment(
 
     let mut escrow: Escrow = row.into();
 
+    if escrow.status != "accepted" {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot fund an escrow in status '{}'", escrow.status)
+        }));
+    }
+
     let paystack_secret = match std::env::var("PAYSTACK_SECRET_KEY") {
         Ok(key) => key,
         Err(_) => {
@@ -1149,11 +1240,10 @@ async fn verify_payment(
         }));
     }
 
-    let paid_naira = data.amount as f64 / 100.0;
-    if (paid_naira - escrow.amount).abs() > 0.01 {
+    if data.amount != escrow.amount {
         return Json(json!({
             "status": "error",
-            "message": format!("amount mismatch: expected {}, Paystack confirms {}", escrow.amount, paid_naira)
+            "message": format!("amount mismatch: expected {} kobo, Paystack confirms {} kobo", escrow.amount, data.amount)
         }));
     }
 
@@ -1178,9 +1268,245 @@ async fn get_escrow(State(db): State<PgPool>, Path(id): Path<String>) -> Json<Va
         Ok(Some(row)) => {
             let escrow: Escrow = row.into();
             let dispute = fetch_visible_dispute(&db, &id).await.ok().flatten();
-            Json(json!({ "status": "ok", "escrow": escrow, "dispute": dispute }))
+            let extensions = fetch_pending_extensions(&db, &id).await;
+            Json(json!({ "status": "ok", "escrow": escrow, "dispute": dispute, "extensions": extensions }))
         }
         Ok(None) => Json(json!({ "status": "error", "message": "escrow not found" })),
         Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
+}
+
+async fn fetch_pending_extensions(db: &PgPool, escrow_id: &str) -> Vec<ExtensionRow> {
+    let uuid = match Uuid::parse_str(escrow_id) {
+        Ok(u) => u,
+        Err(_) => return Vec::new(),
+    };
+
+    sqlx::query_as::<_, ExtensionRow>(
+        r#"
+        SELECT id, escrow_id, milestone_id, requested_by, current_deadline, new_deadline, reason, status
+        FROM extension_requests
+        WHERE escrow_id = $1 AND status = 'pending'
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(uuid)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default()
+}
+
+async fn request_extension(
+    State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
+    ExtractJson(payload): ExtractJson<RequestExtensionRequest>,
+) -> Json<Value> {
+    let row = match fetch_escrow_row(&db, &payload.escrow_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Json(json!({ "status": "error", "message": "escrow not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    let escrow: Escrow = row.into();
+    let caller_id = auth_user.user_id.to_string();
+
+    if escrow.freelancer_id != caller_id {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the freelancer on this escrow can request an extension"
+        }));
+    }
+
+    if escrow.status != "accepted" && escrow.status != "funded" {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot request an extension on an escrow in status '{}'", escrow.status)
+        }));
+    }
+
+    let milestone = match escrow.milestones.iter().find(|m| m.id == payload.milestone_id) {
+        Some(m) => m,
+        None => return Json(json!({ "status": "error", "message": "milestone not found" })),
+    };
+
+    if milestone.status != "pending" {
+        return Json(json!({
+            "status": "error",
+            "message": "only a milestone that has not been delivered can be extended"
+        }));
+    }
+
+    let reason = payload.reason.trim().to_string();
+    if reason.is_empty() {
+        return Json(json!({ "status": "error", "message": "a reason is required" }));
+    }
+
+    let new_date = match NaiveDate::parse_from_str(&payload.new_deadline, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return Json(json!({ "status": "error", "message": "new deadline must be a valid date" })),
+    };
+
+    if new_date <= chrono::Utc::now().date_naive() {
+        return Json(json!({ "status": "error", "message": "new deadline must be in the future" }));
+    }
+
+    if let Some(current) = &milestone.deadline {
+        if let Ok(current_date) = NaiveDate::parse_from_str(current, "%Y-%m-%d") {
+            if new_date <= current_date {
+                return Json(json!({
+                    "status": "error",
+                    "message": "new deadline must be later than the current one"
+                }));
+            }
+        }
+    }
+
+    let escrow_uuid = Uuid::parse_str(&escrow.id).unwrap();
+
+    let pending = sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*) FROM extension_requests WHERE escrow_id = $1 AND milestone_id = $2 AND status = 'pending'"#,
+    )
+    .bind(escrow_uuid)
+    .bind(&payload.milestone_id)
+    .fetch_one(&db)
+    .await;
+
+    match pending {
+        Ok(0) => {}
+        Ok(_) => {
+            return Json(json!({
+                "status": "error",
+                "message": "there is already a pending extension request for this milestone"
+            }));
+        }
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+
+    let new_deadline = new_date.format("%Y-%m-%d").to_string();
+
+    let result = sqlx::query(
+        r#"
+        INSERT INTO extension_requests (escrow_id, milestone_id, requested_by, current_deadline, new_deadline, reason)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(escrow_uuid)
+    .bind(&payload.milestone_id)
+    .bind(&caller_id)
+    .bind(&milestone.deadline)
+    .bind(&new_deadline)
+    .bind(&reason)
+    .execute(&db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            if let Ok(Some(client)) = db::find_user_by_id(&db, &escrow.client_id).await {
+                email::extension_requested(&client.email, &escrow.id).await;
+            }
+            Json(json!({ "status": "requested" }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+}
+
+async fn apply_extension_decision(
+    db: &PgPool,
+    escrow: &mut Escrow,
+    ext: &ExtensionRow,
+    accept: bool,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let new_status = if accept { "approved" } else { "declined" };
+
+    let updated = sqlx::query(
+        r#"UPDATE extension_requests SET status = $1, responded_at = now() WHERE id = $2 AND status = 'pending'"#,
+    )
+    .bind(new_status)
+    .bind(ext.id)
+    .execute(&mut *tx)
+    .await?;
+
+    if updated.rows_affected() == 0 {
+        return Ok(false);
+    }
+
+    if accept {
+        for m in escrow.milestones.iter_mut() {
+            if m.id == ext.milestone_id {
+                m.deadline = Some(ext.new_deadline.clone());
+            }
+        }
+        let escrow_uuid = Uuid::parse_str(&escrow.id).unwrap();
+        sqlx::query(r#"UPDATE escrows SET milestones = $1 WHERE id = $2"#)
+            .bind(SqlxJson(escrow.milestones.clone()))
+            .bind(escrow_uuid)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+async fn respond_extension(
+    State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
+    ExtractJson(payload): ExtractJson<RespondExtensionRequest>,
+) -> Json<Value> {
+    let request_uuid = match Uuid::parse_str(&payload.request_id) {
+        Ok(u) => u,
+        Err(_) => return Json(json!({ "status": "error", "message": "invalid request id" })),
+    };
+
+    let ext = match sqlx::query_as::<_, ExtensionRow>(
+        r#"
+        SELECT id, escrow_id, milestone_id, requested_by, current_deadline, new_deadline, reason, status
+        FROM extension_requests WHERE id = $1
+        "#,
+    )
+    .bind(request_uuid)
+    .fetch_optional(&db)
+    .await
+    {
+        Ok(Some(e)) => e,
+        Ok(None) => return Json(json!({ "status": "error", "message": "extension request not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    if ext.status != "pending" {
+        return Json(json!({ "status": "error", "message": "this request was already answered" }));
+    }
+
+    let mut escrow = match fetch_escrow_row(&db, &ext.escrow_id.to_string()).await {
+        Ok(Some(r)) => Escrow::from(r),
+        Ok(None) => return Json(json!({ "status": "error", "message": "escrow not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    };
+
+    if escrow.client_id != auth_user.user_id.to_string() {
+        return Json(json!({
+            "status": "error",
+            "message": "Only the client on this escrow can respond to an extension request"
+        }));
+    }
+
+    match apply_extension_decision(&db, &mut escrow, &ext, payload.accept).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return Json(json!({ "status": "error", "message": "this request was already answered" }));
+        }
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+
+    if let Ok(Some(freelancer)) = db::find_user_by_id(&db, &escrow.freelancer_id).await {
+        if payload.accept {
+            email::extension_approved(&freelancer.email, &escrow.id).await;
+        } else {
+            email::extension_declined(&freelancer.email, &escrow.id).await;
+        }
+    }
+
+    let outcome = if payload.accept { "approved" } else { "declined" };
+    Json(json!({ "status": outcome, "escrow": escrow }))
 }
