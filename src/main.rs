@@ -233,6 +233,7 @@ async fn main() {
         .route("/respond-extension", post(respond_extension))
         .route("/verify-payment", post(verify_payment))
         .route("/escrow/:id", get(get_escrow))
+        .route("/users/name/:id", get(user_name))
         .route("/admin/check", get(admin_check))
         .route("/admin/disputes", get(admin_list_disputes))
         .route("/admin/disputes/resolve", post(admin_resolve_dispute))
@@ -407,8 +408,18 @@ async fn propose_escrow(
     auth_user: auth::AuthUser,
     ExtractJson(payload): ExtractJson<ProposeEscrowRequest>,
 ) -> Json<Value> {
-    if let Err(msg) = validate_amounts(payload.amount, &payload.milestones) {
+    if let Err(msg) = validate_proposal(payload.amount, &payload.description, &payload.milestones) {
         return Json(json!({ "status": "error", "message": msg }));
+    }
+
+    if payload.client_id == auth_user.user_id.to_string() {
+        return Json(json!({ "status": "error", "message": "You cannot propose an escrow to yourself" }));
+    }
+
+    match db::find_user_by_id(&db, &payload.client_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Json(json!({ "status": "error", "message": "client not found" })),
+        Err(e) => return Json(json!({ "status": "error", "message": e.to_string() })),
     }
 
     let milestones: Vec<Milestone> = build_milestones(payload.milestones, payload.amount);
@@ -481,6 +492,53 @@ fn validate_amounts(amount: i64, milestones: &Option<Vec<MilestoneInput>>) -> Re
         }
     }
     Ok(())
+}
+
+fn validate_proposal(
+    amount: i64,
+    description: &str,
+    milestones: &Option<Vec<MilestoneInput>>,
+) -> Result<(), String> {
+    let desc = description.trim();
+    if desc.is_empty() {
+        return Err("add a short description of the work".to_string());
+    }
+    if desc.chars().count() > 500 {
+        return Err("the description can be 500 characters at most".to_string());
+    }
+
+    validate_amounts(amount, milestones)?;
+
+    if let Some(list) = milestones {
+        for m in list {
+            let title = m.title.trim();
+            if title.is_empty() {
+                return Err("every milestone needs a title".to_string());
+            }
+            if title.chars().count() > 120 {
+                return Err("milestone titles can be 120 characters at most".to_string());
+            }
+            if let Some(d) = &m.deadline {
+                if !d.is_empty() && NaiveDate::parse_from_str(d, "%Y-%m-%d").is_err() {
+                    return Err("milestone deadlines must be valid dates".to_string());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn funding_required() -> bool {
+    std::env::var("REQUIRE_FUNDING").map(|v| v == "true").unwrap_or(false)
+}
+
+fn escrow_is_active(status: &str) -> bool {
+    if funding_required() {
+        status == "funded"
+    } else {
+        status == "funded" || status == "accepted"
+    }
 }
 
 fn build_milestones(inputs: Option<Vec<MilestoneInput>>, total_amount: i64) -> Vec<Milestone> {
@@ -589,7 +647,7 @@ async fn update_proposal(
         }));
     }
 
-    if let Err(msg) = validate_amounts(payload.amount, &payload.milestones) {
+    if let Err(msg) = validate_proposal(payload.amount, &payload.description, &payload.milestones) {
         return Json(json!({ "status": "error", "message": msg }));
     }
 
@@ -656,6 +714,17 @@ async fn deliver_milestone(
         }));
     }
 
+    if !escrow_is_active(&escrow.status) {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot deliver a milestone while the escrow is '{}'", escrow.status)
+        }));
+    }
+
+    if payload.proof_note.chars().count() > 1000 {
+        return Json(json!({ "status": "error", "message": "the delivery note can be 1000 characters at most" }));
+    }
+
     let milestone_found = escrow.milestones.iter_mut().find(|m| m.id == payload.milestone_id);
 
     match milestone_found {
@@ -710,6 +779,13 @@ async fn confirm_milestone(
         return Json(json!({
             "status": "error",
             "message": "Only the client on this escrow can confirm a milestone"
+        }));
+    }
+
+    if !escrow_is_active(&escrow.status) {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot confirm a milestone while the escrow is '{}'", escrow.status)
         }));
     }
 
@@ -845,8 +921,20 @@ async fn dispute_escrow(
         }));
     }
 
+    if !escrow_is_active(&escrow.status) {
+        return Json(json!({
+            "status": "error",
+            "message": format!("cannot raise a dispute while the escrow is '{}'", escrow.status)
+        }));
+    }
+
     if !(0.0..=100.0).contains(&payload.proposed_split_freelancer_pct) {
         return Json(json!({ "status": "error", "message": "split must be between 0 and 100" }));
+    }
+
+    let dispute_reason = payload.reason.trim().to_string();
+    if dispute_reason.is_empty() || dispute_reason.chars().count() > 1000 {
+        return Json(json!({ "status": "error", "message": "give a reason of up to 1000 characters" }));
     }
 
     escrow.status = "disputed".to_string();
@@ -860,7 +948,7 @@ async fn dispute_escrow(
     )
     .bind(escrow_uuid)
     .bind(&caller_id)
-    .bind(&payload.reason)
+    .bind(&dispute_reason)
     .bind(payload.proposed_split_freelancer_pct)
     .execute(&db)
     .await;
@@ -924,8 +1012,8 @@ async fn respond_dispute(
         }
         "reject" => {
             let reason = match &payload.counter_reason {
-                Some(r) if !r.trim().is_empty() => r.clone(),
-                _ => return Json(json!({ "status": "error", "message": "a reason is required to reject" })),
+                Some(r) if !r.trim().is_empty() && r.chars().count() <= 1000 => r.trim().to_string(),
+                _ => return Json(json!({ "status": "error", "message": "give a reason of up to 1000 characters to reject" })),
             };
             let result = sqlx::query(
                 r#"UPDATE disputes SET status = 'escalated', counter_reason = $1,
@@ -1071,7 +1159,20 @@ async fn admin_list_disputes(State(db): State<PgPool>, auth_user: auth::AuthUser
                     .ok()
                     .flatten()
                     .map(Escrow::from);
-                out.push(json!({ "dispute": d, "escrow": escrow }));
+                let client_name = match &escrow {
+                    Some(e) => user_display_name(&db, &e.client_id).await,
+                    None => String::new(),
+                };
+                let freelancer_name = match &escrow {
+                    Some(e) => user_display_name(&db, &e.freelancer_id).await,
+                    None => String::new(),
+                };
+                out.push(json!({
+                    "dispute": d,
+                    "escrow": escrow,
+                    "client_name": client_name,
+                    "freelancer_name": freelancer_name
+                }));
             }
             Json(json!({ "status": "ok", "disputes": out }))
         }
@@ -1263,10 +1364,21 @@ async fn verify_payment(
     }
 }
 
-async fn get_escrow(State(db): State<PgPool>, Path(id): Path<String>) -> Json<Value> {
+async fn get_escrow(
+    State(db): State<PgPool>,
+    auth_user: auth::AuthUser,
+    Path(id): Path<String>,
+) -> Json<Value> {
     match fetch_escrow_row(&db, &id).await {
         Ok(Some(row)) => {
             let escrow: Escrow = row.into();
+            let caller_id = auth_user.user_id.to_string();
+            let allowed = escrow.client_id == caller_id
+                || escrow.freelancer_id == caller_id
+                || is_admin(&db, &caller_id).await;
+            if !allowed {
+                return Json(json!({ "status": "error", "message": "escrow not found" }));
+            }
             let dispute = fetch_visible_dispute(&db, &id).await.ok().flatten();
             let extensions = fetch_pending_extensions(&db, &id).await;
             Json(json!({ "status": "ok", "escrow": escrow, "dispute": dispute, "extensions": extensions }))
@@ -1339,6 +1451,9 @@ async fn request_extension(
     let reason = payload.reason.trim().to_string();
     if reason.is_empty() {
         return Json(json!({ "status": "error", "message": "a reason is required" }));
+    }
+    if reason.chars().count() > 1000 {
+        return Json(json!({ "status": "error", "message": "the reason can be 1000 characters at most" }));
     }
 
     let new_date = match NaiveDate::parse_from_str(&payload.new_deadline, "%Y-%m-%d") {
@@ -1509,4 +1624,26 @@ async fn respond_extension(
 
     let outcome = if payload.accept { "approved" } else { "declined" };
     Json(json!({ "status": outcome, "escrow": escrow }))
+}
+
+async fn user_display_name(db: &PgPool, id: &str) -> String {
+    match db::find_user_by_id(db, id).await {
+        Ok(Some(u)) => format!("{} {}", u.first_name, u.last_name).trim().to_string(),
+        _ => "Unknown user".to_string(),
+    }
+}
+
+async fn user_name(
+    State(db): State<PgPool>,
+    _auth_user: auth::AuthUser,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match db::find_user_by_id(&db, &id).await {
+        Ok(Some(u)) => {
+            let name = format!("{} {}", u.first_name, u.last_name).trim().to_string();
+            Json(json!({ "status": "ok", "name": name }))
+        }
+        Ok(None) => Json(json!({ "status": "error", "message": "user not found" })),
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
 }
