@@ -469,9 +469,14 @@ async fn propose_escrow(
     }
 }
 
+const MAX_AMOUNT_KOBO: i64 = 100_000_000_000;
+
 fn validate_amounts(amount: i64, milestones: &Option<Vec<MilestoneInput>>) -> Result<(), String> {
     if amount <= 0 {
         return Err("amount must be greater than zero".to_string());
+    }
+    if amount > MAX_AMOUNT_KOBO {
+        return Err("amount is too large (the limit is \u{20A6}1,000,000,000)".to_string());
     }
     if let Some(list) = milestones {
         if list.is_empty() {
